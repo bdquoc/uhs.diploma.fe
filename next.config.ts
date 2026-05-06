@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  /* Tắt hoàn toàn các icon thông báo ở góc */
+  devIndicators: false,
 };
 
 export default nextConfig;
