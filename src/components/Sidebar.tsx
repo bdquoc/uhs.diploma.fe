@@ -26,12 +26,6 @@ const menuItems = [
         roles: ['ADMIN', 'MANAGER', 'STAFF']
     },
     {
-        name: 'Tải lên (AI)',
-        href: '/upload',
-        icon: FileUp,
-        roles: ['ADMIN', 'STAFF']
-    },
-    {
         name: 'Khai báo mới',
         href: '/create',
         icon: PlusCircle,
@@ -53,12 +47,6 @@ const menuItems = [
         name: 'Quản lý nhân sự',
         href: '/admin/users',
         icon: Users,
-        roles: ['ADMIN']
-    },
-    {
-        name: 'Cấu hình',
-        href: '/settings',
-        icon: Settings,
         roles: ['ADMIN']
     },
 ];
