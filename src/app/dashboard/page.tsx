@@ -2,11 +2,12 @@
 
 import React from 'react';
 import { useAppContext } from '@/components/AppContext';
-import { FileText, Clock, CheckCircle, TrendingUp, BarChart2, Activity } from 'lucide-react';
+import { FileText, Clock, CheckCircle, TrendingUp, Activity, FileX } from 'lucide-react';
 
 export default function Dashboard() {
 
-    const { pendingCount, totalDiplomas, monthlyDiplomas } = useAppContext();
+    // Thêm rejectedCount vào useAppContext (tạm gán default = 0 nếu chưa có)
+    const { pendingCount, totalDiplomas, monthlyDiplomas, rejectedCount = 0 } = useAppContext();
 
     const currentMonthStr = `Tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()}`;
 
@@ -20,7 +21,7 @@ export default function Dashboard() {
                 </p>
             </div>
 
-            {/* Stats Cards */}
+            {/* Stats Cards - Quay lại lg:grid-cols-4 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
 
                 {/* Card 1: Tổng văn bằng */}
@@ -34,7 +35,6 @@ export default function Dashboard() {
                         </span>
                     </div>
                     <h3 className="text-gray-500 text-sm font-medium">Tổng văn bằng lưu trữ</h3>
-                    {/* Hiển thị số liệu thực tế */}
                     <p className="text-2xl font-bold text-gray-900 mt-1">{totalDiplomas}</p>
                 </div>
 
@@ -61,21 +61,21 @@ export default function Dashboard() {
                         <span className="text-sm font-medium text-gray-500">{currentMonthStr}</span>
                     </div>
                     <h3 className="text-gray-500 text-sm font-medium">Đã cấp trong tháng</h3>
-                    {/* Hiển thị số liệu thực tế */}
                     <p className="text-2xl font-bold text-gray-900 mt-1">{monthlyDiplomas}</p>
                 </div>
 
-                {/* Card 4: Tỷ lệ OCR */}
+                {/* Card 4: Bị từ chối phê duyệt (Thay cho OCR) */}
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                     <div className="flex justify-between items-start mb-4">
-                        <div className="p-3 bg-indigo-50 rounded-lg text-indigo-600">
-                            <BarChart2 className="w-6 h-6" />
+                        <div className="p-3 bg-red-50 rounded-lg text-red-600">
+                            <FileX className="w-6 h-6" />
                         </div>
-                        <span className="text-sm font-medium text-green-600 bg-green-50 px-2 py-1 rounded-md">98.5%</span>
+                        <span className="text-sm font-medium text-gray-500">{currentMonthStr}</span>
                     </div>
-                    <h3 className="text-gray-500 text-sm font-medium">Tỷ lệ OCR chính xác</h3>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">Ổn định</p>
+                    <h3 className="text-gray-500 text-sm font-medium">Bị từ chối phê duyệt</h3>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{rejectedCount}</p>
                 </div>
+
             </div>
 
             {/* Chart & Activities */}

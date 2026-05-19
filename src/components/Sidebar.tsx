@@ -26,12 +26,6 @@ const menuItems = [
         roles: ['ADMIN', 'MANAGER', 'STAFF']
     },
     {
-        name: 'Tải lên (AI)',
-        href: '/upload',
-        icon: FileUp,
-        roles: ['ADMIN', 'STAFF']
-    },
-    {
         name: 'Khai báo mới',
         href: '/create',
         icon: PlusCircle,
@@ -53,12 +47,6 @@ const menuItems = [
         name: 'Quản lý nhân sự',
         href: '/admin/users',
         icon: Users,
-        roles: ['ADMIN']
-    },
-    {
-        name: 'Cấu hình',
-        href: '/settings',
-        icon: Settings,
         roles: ['ADMIN']
     },
 ];
@@ -90,7 +78,6 @@ export default function Sidebar() {
                 </div>
                 <div>
                     <span className="text-xl font-bold text-[#1E3A8A]">UHS Diploma</span>
-                    <p className="text-[11px] text-slate-400 -mt-1 font-medium italic">Role: {user.role}</p>
                 </div>
             </div>
 
@@ -134,10 +121,6 @@ export default function Sidebar() {
 
             {/* User Info & Logout Button */}
             <div className="px-4 mt-auto pt-4 border-t border-slate-50 space-y-2">
-                <div className="px-4 py-2 bg-slate-50 rounded-xl mb-2">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Đang đăng nhập</p>
-                    <p className="text-xs font-bold text-[#1E3A8A] truncate">{user.name}</p>
-                </div>
                 <button className="flex items-center gap-3 px-4 py-3 w-full text-slate-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-all group">
                     <LogOut size={18} className="group-hover:text-red-500" />
                     <span className="font-bold text-sm">Đăng xuất</span>

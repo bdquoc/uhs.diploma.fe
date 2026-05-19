@@ -11,7 +11,9 @@ import {
     ArrowLeft,
     User,
     FileBadge,
-    Save
+    Save,
+    X,
+    MessageSquareWarning
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -27,6 +29,10 @@ export default function ApprovalDetail({ params }: PageProps) {
 
     // Thêm state để nhận biết hồ sơ nhập tay hay OCR
     const [isManualEntry, setIsManualEntry] = useState(false);
+
+    // State cho Popup Từ chối
+    const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+    const [rejectReason, setRejectReason] = useState("");
 
     // State lưu trữ dữ liệu form
     const [certificateData, setCertificateData] = useState({
@@ -49,10 +55,8 @@ export default function ApprovalDetail({ params }: PageProps) {
         const currentRecord = pendingList.find((item: any) => item.id === id);
 
         if (currentRecord) {
-            // SỬA LỖI Ở ĐÂY: Bắt thêm trường hợp aiConfidence bị undefined/null/rỗng đối với hồ sơ nhập tay
             setIsManualEntry(!currentRecord.aiConfidence || currentRecord.aiConfidence === 'N/A');
 
-            // Đổ dữ liệu vào state
             setCertificateData({
                 fullName: currentRecord.fullName || currentRecord.studentName || "",
                 dateOfBirth: currentRecord.dob || currentRecord.dateOfBirth || "",
@@ -67,12 +71,11 @@ export default function ApprovalDetail({ params }: PageProps) {
                 registryNumber: currentRecord.registryNumber || currentRecord.regNo || ""
             });
         } else {
-            // Fallback nếu không tìm thấy, có thể do user F5 trang hoặc id giả lập
             toast.error("Không tìm thấy dữ liệu hồ sơ gốc!");
         }
     }, [id]);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setCertificateData(prev => ({ ...prev, [name]: value }));
     };
@@ -90,8 +93,8 @@ export default function ApprovalDetail({ params }: PageProps) {
         const updatedPendingList = pendingList.filter((item: any) => item.id !== id);
         localStorage.setItem('uhs_pending_approvals', JSON.stringify(updatedPendingList));
 
-        // Dispatch event để Sidebar cập nhật lại số lượng
-        window.dispatchEvent(new Event('sync_pending_count'));
+        // Dispatch event để AppContext cập nhật lại tất cả số lượng
+        window.dispatchEvent(new Event('sync_app_data'));
     };
 
     // Hàm xử lý Phê duyệt
@@ -131,18 +134,104 @@ export default function ApprovalDetail({ params }: PageProps) {
         router.push('/certificates');
     };
 
-    // Hàm xử lý Từ chối
-    const handleReject = () => {
-        const reason = prompt("Nhập lý do từ chối hồ sơ này:");
-        if (reason) {
-            removeRecordFromPending(); // Xóa khỏi danh sách chờ nếu bị từ chối
-            toast.error(`Đã từ chối hồ sơ #${id}. Lý do: ${reason}`);
-            router.push('/approvals');
+    // Hàm mở Popup từ chối
+    const openRejectModal = () => {
+        setIsRejectModalOpen(true);
+    };
+
+    // Hàm thực hiện Từ chối sau khi nhập lý do
+    const confirmReject = () => {
+        if (!rejectReason.trim()) {
+            toast.error("Vui lòng nhập lý do từ chối!");
+            return;
         }
+
+        // Tạo dữ liệu hồ sơ bị từ chối
+        const rejectedDiploma = {
+            id: id,
+            fullName: certificateData.fullName,
+            major: certificateData.major,
+            // Ép rỗng các trường số hiệu để khớp với logic lọc ở Kho văn bằng
+            diplomaNumber: "",
+            serialNo: "",
+            registryNumber: certificateData.registryNumber,
+            rejectedAt: new Date().toISOString(),
+            reason: rejectReason,
+            status: 'REJECTED'
+        };
+
+        // 1. Lưu vào Kho hồ sơ từ chối (Sửa lại đúng key: uhs_rejected_diplomas)
+        const existingRejected = JSON.parse(localStorage.getItem('uhs_rejected_diplomas') || '[]');
+        const updatedRejected = [rejectedDiploma, ...existingRejected];
+        localStorage.setItem('uhs_rejected_diplomas', JSON.stringify(updatedRejected));
+
+        // 2. Xóa khỏi danh sách chờ duyệt
+        removeRecordFromPending();
+
+        // 3. Đóng popup và thông báo
+        setIsRejectModalOpen(false);
+        toast.success(`Đã từ chối hồ sơ #${id}`, {
+            style: { borderRadius: '10px', background: '#FEF2F2', color: '#DC2626', fontWeight: 'bold', border: '1px solid #FCA5A5' }
+        });
+
+        router.push('/certificates'); // Đổi đường dẫn này về Kho văn bằng thay vì /approvals để xem kết quả ngay
     };
 
     return (
-        <div className="space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-500">
+        <div className="space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-500 relative">
+
+            {/* --- MODAL TỪ CHỐI PHÊ DUYỆT --- */}
+            {isRejectModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden scale-in-95 duration-200">
+                        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-red-50/50">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                                    <MessageSquareWarning size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-red-700">Từ chối phê duyệt</h3>
+                                    <p className="text-[11px] font-medium text-red-500/80 uppercase">Hồ sơ #{id}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsRejectModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-lg transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-slate-700">Lý do từ chối <span className="text-red-500">*</span></label>
+                                <textarea
+                                    value={rejectReason}
+                                    onChange={(e) => setRejectReason(e.target.value)}
+                                    placeholder="Vd: Sai thông tin ngày sinh, ảnh mờ không thể đối soát..."
+                                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-red-100 focus:border-red-400 outline-none min-h-[120px] resize-none"
+                                    autoFocus
+                                />
+                                <p className="text-xs text-slate-500">Hồ sơ này sẽ được chuyển vào mục lưu trữ "Bị từ chối".</p>
+                            </div>
+                        </div>
+                        <div className="p-5 border-t border-slate-100 bg-slate-50 flex gap-3 justify-end">
+                            <button
+                                onClick={() => setIsRejectModalOpen(false)}
+                                className="px-4 py-2.5 text-slate-600 font-bold text-sm hover:bg-slate-200 rounded-xl transition-all"
+                            >
+                                Hủy bỏ
+                            </button>
+                            <button
+                                onClick={confirmReject}
+                                disabled={!rejectReason.trim()}
+                                className="px-6 py-2.5 bg-red-600 text-white font-bold text-sm rounded-xl shadow-lg shadow-red-200 hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Xác nhận từ chối
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* --- END MODAL --- */}
+
+
             {/* Nút quay lại và tiêu đề */}
             <div className="flex items-center gap-4">
                 <Link href="/approvals" className="p-2 hover:bg-slate-200 rounded-lg transition-all text-slate-500">
@@ -173,7 +262,7 @@ export default function ApprovalDetail({ params }: PageProps) {
 
                 <div className="flex gap-3 w-full md:w-auto">
                     <button
-                        onClick={handleReject}
+                        onClick={openRejectModal}
                         className="flex-1 md:flex-none px-6 py-2.5 text-red-600 font-bold text-sm hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
                     >
                         Từ chối hồ sơ
