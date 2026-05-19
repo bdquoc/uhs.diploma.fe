@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Eye, Clock, Search, CheckSquare, ShieldAlert } from 'lucide-react';
 
 export default function ApprovalsPage() {
-    // 1. Khởi tạo danh sách bằng mảng rỗng (Đã xóa Mock Data)
+    // 1. Khởi tạo danh sách bằng mảng rỗng
     const [pendingList, setPendingList] = useState<any[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
 
@@ -24,8 +24,7 @@ export default function ApprovalsPage() {
                     id: item.id,
                     studentName: item.fullName || "Chưa cập nhật",
                     major: item.major || "Chưa cập nhật",
-                    uploadDate: formattedDate,
-                    confidence: item.aiConfidence || "N/A" // Sẽ hiện N/A cho hồ sơ nhập tay
+                    uploadDate: formattedDate
                 };
             });
 
@@ -75,7 +74,6 @@ export default function ApprovalsPage() {
                         <tr>
                             <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Học viên / Ngành học</th>
                             <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Ngày gửi</th>
-                            <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Độ tin cậy AI</th>
                             <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Hành động</th>
                         </tr>
                     </thead>
@@ -90,17 +88,6 @@ export default function ApprovalsPage() {
                                     <div className="flex items-center gap-1.5 text-slate-500 text-sm font-medium">
                                         <Clock size={14} className="text-slate-300" /> {item.uploadDate}
                                     </div>
-                                </td>
-                                <td className="px-6 py-5">
-                                    {item.confidence !== 'N/A' ? (
-                                        <span className="bg-emerald-50 text-[#10B981] px-2 py-1 rounded text-[10px] font-black">
-                                            {item.confidence}
-                                        </span>
-                                    ) : (
-                                        <span className="bg-slate-100 text-slate-500 px-2 py-1 rounded text-[10px] font-black">
-                                            NHẬP TAY
-                                        </span>
-                                    )}
                                 </td>
                                 <td className="px-6 py-5 text-right">
                                     <Link

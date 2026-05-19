@@ -7,6 +7,7 @@ interface AppContextType {
     pendingCount: number;
     totalDiplomas: number;
     monthlyDiplomas: number;
+    rejectedCount: number; // Thêm trường dữ liệu bị từ chối
     syncData: () => void; // Hàm để ép hệ thống tính toán lại bằng tay nếu cần
 }
 
@@ -16,6 +17,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [pendingCount, setPendingCount] = useState<number>(0);
     const [totalDiplomas, setTotalDiplomas] = useState<number>(0);
     const [monthlyDiplomas, setMonthlyDiplomas] = useState<number>(0);
+    const [rejectedCount, setRejectedCount] = useState<number>(0); // State mới
 
     // Hàm quét LocalStorage và tính toán mọi con số
     const syncData = () => {
@@ -40,6 +42,10 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         }).length;
 
         setMonthlyDiplomas(countThisMonth);
+
+        // 3. Lấy dữ liệu HỒ SƠ BỊ TỪ CHỐI
+        const rejectedList = JSON.parse(localStorage.getItem('uhs_rejected_approvals') || '[]');
+        setRejectedCount(rejectedList.length);
     };
 
     // Chạy tự động khi load trang và lắng nghe sự kiện
@@ -59,7 +65,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     }, []);
 
     return (
-        <AppContext.Provider value={{ pendingCount, totalDiplomas, monthlyDiplomas, syncData }}>
+        <AppContext.Provider value={{ pendingCount, totalDiplomas, monthlyDiplomas, rejectedCount, syncData }}>
             {children}
         </AppContext.Provider>
     );
