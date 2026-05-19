@@ -3,15 +3,34 @@
 import React, { useState, useEffect } from 'react';
 import { Search, SlidersHorizontal, Download, Archive, ShieldCheck, Calendar, Eye, X, Award, Hash, XCircle, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
+// Import diplomaService để gọi API thực tế
+import { diplomaService } from '../../services/diploma.service';
 
-// Kiểu dữ liệu cho Văn bằng đã duyệt
+// Kiểu dữ liệu cấu trúc thực tế từ API Backend
+interface ApiDiplomaRecord {
+    id: string;
+    studentName: string;
+    studentDob: string;
+    major: string;
+    classification: string;
+    graduationYear: number;
+    diplomaNumber: string | null;
+    registryNumber: string | null;
+    createdAt: string;
+    updatedAt: string;
+    status: 'APPROVED' | 'REJECTED' | 'PENDING_REVIEW' | 'DRAFT' | 'STORED';
+    hash: string | null;
+    rejectReason: string | null;
+}
+
+// Kiểu dữ liệu cho Văn bằng đã duyệt (Áp màng dữ liệu thực tế để hiển thị)
 interface ApprovedDiploma {
     id: string;
     fullName: string;
     dob: string;
     major: string;
     ranking?: string;
-    rank?: string; // Dự phòng key khác
+    rank?: string; 
     gradYear: string;
     serialNo: string;
     regNo: string;
@@ -19,14 +38,14 @@ interface ApprovedDiploma {
     hash: string;
 }
 
-// Kiểu dữ liệu cho Hồ sơ bị từ chối
+// Kiểu dữ liệu cho Hồ sơ bị từ chối (Áp màng dữ liệu thực tế để hiển thị)
 interface RejectedDiploma {
     id: string;
     fullName: string;
     dob: string;
     major: string;
     ranking?: string;
-    rank?: string; // Dự phòng key khác
+    rank?: string; 
     gradYear: string;
     rejectedAt: string;
     rejectReason: string;
@@ -52,9 +71,10 @@ export default function CertificateArchive() {
     const [filterOpen, setFilterOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<ArchiveTab>('approved');
 
-    // State quản lý dữ liệu
+    // State quản lý dữ liệu lấy từ API
     const [approvedDiplomas, setApprovedDiplomas] = useState<ApprovedDiploma[]>([]);
     const [rejectedDiplomas, setRejectedDiplomas] = useState<RejectedDiploma[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [isMounted, setIsMounted] = useState(false);
@@ -62,27 +82,93 @@ export default function CertificateArchive() {
     // State lưu trữ thông tin văn bằng/hồ sơ đang được click chọn để Xem
     const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
 
-    // Lấy dữ liệu từ LocalStorage khi trang được load
+    // Hàm chuyển đổi dữ liệu từ API thô sang Interface giao diện của bạn
+    const mapApiToApproved = (item: ApiDiplomaRecord): ApprovedDiploma => ({
+        id: item.id,
+        fullName: item.studentName,
+        dob: safeFormatDate(item.studentDob),
+        major: item.major,
+        ranking: item.classification,
+        gradYear: item.graduationYear?.toString() || 'Chưa cập nhật',
+        serialNo: item.diplomaNumber || 'Chưa cập nhật',
+        regNo: item.registryNumber || 'Chưa cập nhật',
+        approvedAt: item.updatedAt, // Thời điểm bản ghi chuyển sang APPROVED
+        hash: item.hash || 'N/A'
+    });
+
+    const mapApiToRejected = (item: ApiDiplomaRecord): RejectedDiploma => ({
+        id: item.id,
+        fullName: item.studentName,
+        dob: safeFormatDate(item.studentDob),
+        major: item.major,
+        ranking: item.classification,
+        gradYear: item.graduationYear?.toString() || 'Chưa cập nhật',
+        rejectedAt: item.updatedAt, // Thời điểm bị từ chối
+        rejectReason: item.rejectReason || 'Không có lý do từ chối cụ thể'
+    });
+
+    // Hàm gọi API tải danh bạ lưu trữ ban đầu
+    const fetchArchiveData = async () => {
+        try {
+            setLoading(true);
+            // Gọi song song 2 API lấy dữ liệu Approved và Rejected từ Backend
+            const [approvedRes, rejectedRes] = await Promise.all([
+                diplomaService.getApproved(),
+                diplomaService.getRejected() // Sử dụng API đã được thêm mới ở bước trước
+            ]);
+
+            // Trích xuất dữ liệu mảng an toàn dựa trên format phản hồi chung { data: [...] }
+            const approvedList: ApiDiplomaRecord[] = approvedRes?.data || [];
+            const rejectedList: ApiDiplomaRecord[] = rejectedRes?.data || [];
+
+            setApprovedDiplomas(approvedList.map(mapApiToApproved));
+            setRejectedDiplomas(rejectedList.map(mapApiToRejected));
+        } catch (error) {
+            console.error("Lỗi khi đồng bộ dữ liệu từ kho lưu trữ:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Tải dữ liệu lần đầu tiên khi tải trang
     useEffect(() => {
         setIsMounted(true);
-
-        const rawApproved = JSON.parse(localStorage.getItem('uhs_approved_diplomas') || '[]');
-        const rawRejected = JSON.parse(localStorage.getItem('uhs_rejected_diplomas') || '[]');
-
-        const allRecords = [...rawApproved, ...rawRejected];
-
-        const strictlyApproved = allRecords.filter(item => item.serialNo && item.serialNo.trim() !== '');
-        const strictlyRejected = allRecords.filter(item => !item.serialNo || item.serialNo.trim() === '');
-
-        const uniqueApproved = strictlyApproved.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-        const uniqueRejected = strictlyRejected.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-
-        setApprovedDiplomas(uniqueApproved as ApprovedDiploma[]);
-        setRejectedDiplomas(uniqueRejected as RejectedDiploma[]);
+        fetchArchiveData();
     }, []);
+
+    // Xử lý tìm kiếm (Nếu có từ khóa thì lọc, kết hợp đồng bộ hóa theo Tab hiển thị)
+    useEffect(() => {
+        if (!isMounted) return;
+
+        const delayDebounceFn = setTimeout(async () => {
+            if (searchTerm.trim() === '') {
+                // Nếu xóa trống ô tìm kiếm, nạp lại toàn bộ kho lưu trữ ban đầu
+                fetchArchiveData();
+                return;
+            }
+
+            try {
+                // Tận dụng API search để quét nhanh phía Server
+                const searchRes = await diplomaService.search(searchTerm);
+                const results: ApiDiplomaRecord[] = searchRes?.data || [];
+
+                // Phân loại kết quả tìm kiếm được trả về theo đúng trạng thái của từng Tab
+                const matchedApproved = results.filter(item => item.status === 'APPROVED');
+                const matchedRejected = results.filter(item => item.status === 'REJECTED');
+
+                setApprovedDiplomas(matchedApproved.map(mapApiToApproved));
+                setRejectedDiplomas(matchedRejected.map(mapApiToRejected));
+            } catch (err) {
+                console.error("Lỗi thực thi tìm kiếm:", err);
+            }
+        }, 400); // Kỹ thuật Debounce 400ms giảm tải tần suất gọi API liên tục
+
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchTerm, isMounted]);
 
     const currentData = activeTab === 'approved' ? approvedDiplomas : rejectedDiplomas;
 
+    // Giữ nguyên bộ lọc Client-side dự phòng cho tính chính xác
     const filteredData = currentData.filter(d => {
         const nameMatch = d.fullName?.toLowerCase().includes(searchTerm.toLowerCase());
         const serialMatch = activeTab === 'approved' && (d as ApprovedDiploma).serialNo?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -107,13 +193,13 @@ export default function CertificateArchive() {
             {/* TABS */}
             <div className="flex gap-2 border-b border-slate-200">
                 <button
-                    onClick={() => { setActiveTab('approved'); setSelectedRecord(null); setSearchTerm(''); }}
+                    onClick={() => { setActiveTab('approved'); setSelectedRecord(null); setSearchTerm(''); fetchArchiveData(); }}
                     className={`px-6 py-3 font-bold text-sm border-b-2 transition-all ${activeTab === 'approved' ? 'border-[#1E3A8A] text-[#1E3A8A]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                 >
                     Văn bằng đã cấp ({approvedDiplomas.length})
                 </button>
                 <button
-                    onClick={() => { setActiveTab('rejected'); setSelectedRecord(null); setSearchTerm(''); }}
+                    onClick={() => { setActiveTab('rejected'); setSelectedRecord(null); setSearchTerm(''); fetchArchiveData(); }}
                     className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 ${activeTab === 'rejected' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                 >
                     Hồ sơ bị từ chối {rejectedDiplomas.length > 0 && <span className="bg-red-100 text-red-600 py-0.5 px-2 rounded-full text-[10px]">{rejectedDiplomas.length}</span>}
@@ -143,7 +229,7 @@ export default function CertificateArchive() {
 
                 {filterOpen && (
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t border-slate-50 animate-in fade-in slide-in-from-top-2">
-                        <FilterSelect label="Năm tốt nghiệp" options={['2025', '2024', '2023', '2022']} />
+                        <FilterSelect label="Năm tốt nghiệp" options={['2026', '2025', '2024', '2023']} />
                         <FilterSelect label="Ngành học" options={['Bác sĩ y khoa', 'Dược học', 'Điều dưỡng']} />
                         <FilterSelect label="Xếp loại" options={['Xuất sắc', 'Giỏi', 'Khá']} />
                         <FilterSelect label="Hệ đào tạo" options={['Chính quy', 'Liên thông']} />
@@ -168,7 +254,13 @@ export default function CertificateArchive() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {filteredData.map((item, index) => (
+                            {loading ? (
+                                <tr>
+                                    <td colSpan={4} className="p-8 text-center text-sm font-medium text-slate-400">
+                                        Đang tải dữ liệu từ kho lưu trữ...
+                                    </td>
+                                </tr>
+                            ) : filteredData.map((item, index) => (
                                 <tr key={index} className="hover:bg-slate-50/80 transition-colors group">
                                     <td className="p-4">
                                         <div>
@@ -234,7 +326,7 @@ export default function CertificateArchive() {
                         </tbody>
                     </table>
 
-                    {filteredData.length === 0 && (
+                    {!loading && filteredData.length === 0 && (
                         <div className="p-12 text-center flex flex-col items-center justify-center space-y-3">
                             <div className="w-16 h-16 bg-slate-50 flex items-center justify-center rounded-full mb-2">
                                 <Archive size={32} className="text-slate-300" />

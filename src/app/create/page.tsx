@@ -4,6 +4,9 @@ import { Save, User, FileBadge, ArrowLeft, UploadCloud, Image as ImageIcon, Info
 import { useState } from "react"
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+// Import các service kết nối API thực tế
+import { diplomaService } from '@/services/diploma.service'
+import { ocrService } from '@/services/ocr.service'
 
 export default function CreateDiplomaPage() {
     const router = useRouter();
@@ -13,10 +16,10 @@ export default function CreateDiplomaPage() {
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
-    // 1. Tạo state để "hứng" toàn bộ dữ liệu người dùng nhập
+    // 1. Tạo state để "hứng" toàn bộ dữ liệu người dùng nhập + các trường ẩn từ API OCR
     const [formData, setFormData] = useState({
         fullName: '',
-        dateOfBirth: '',
+        dateOfBirth: '', // Hỗ trợ định dạng mm/dd/yyyy hoặc yyyy-mm-dd tùy cấu hình thiết bị
         gender: '',
         ethnicity: '',
         nationality: 'Việt Nam',
@@ -25,8 +28,36 @@ export default function CreateDiplomaPage() {
         graduationYear: '',
         ranking: '',
         diplomaNumber: '',
-        registryNumber: ''
+        registryNumber: '',
+        // Bổ sung các state ẩn để hứng dữ liệu bắt buộc từ Prisma Schema
+        issuedDate: '', 
+        fileUrl: '',
+        ocrRawText: ''
     });
+
+    // Hàm chuyển đổi an toàn mọi định dạng ngày (bao gồm mm/dd/yyyy) sang ISO String cho Prisma
+    const parseDateToISO = (dateStr: string): string | null => {
+        if (!dateStr) return null;
+        
+        // Thử parse trực tiếp bằng cơ chế mặc định của JavaScript
+        const parsedDate = new Date(dateStr);
+        if (!isNaN(parsedDate.getTime())) {
+            return parsedDate.toISOString();
+        }
+
+        // Dự phòng: Nếu chuỗi dạng chuỗi phân tách mm/dd/yyyy thủ công
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+            const month = parseInt(parts[0], 10) - 1;
+            const day = parseInt(parts[1], 10);
+            const year = parseInt(parts[2], 10);
+            const fallbackDate = new Date(year, month, day);
+            if (!isNaN(fallbackDate.getTime())) {
+                return fallbackDate.toISOString();
+            }
+        }
+        return null;
+    };
 
     // 2. Hàm cập nhật state khi người dùng gõ phím
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -34,69 +65,138 @@ export default function CreateDiplomaPage() {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // 3. Hàm xử lý upload ảnh và giả lập quét OCR
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // 3. Hàm xử lý upload ảnh và thực hiện polling gọi API OCR thật
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        // Tạo URL preview cho ảnh
         const url = URL.createObjectURL(file);
         setImagePreview(url);
         setIsOcrProcessing(true);
 
-        // Giả lập thời gian AI xử lý OCR (1.5 giây)
-        setTimeout(() => {
-            setFormData(prev => ({
-                ...prev,
-                fullName: 'LƯU THỊ ÁNH XUÂN',
-                dateOfBirth: '1997-08-04',
-                gender: 'Nữ', // Mock data
-                ethnicity: 'Kinh',
-                placeOfBirth: 'Thành phố Hồ Chí Minh',
-                major: 'Bác sĩ y khoa',
-                graduationYear: '2025',
-                ranking: 'Khá',
-                diplomaNumber: 'QH119202500101',
-                registryNumber: '1977201011069CQ'
-            }));
+        try {
+            const startOcrResponse = await ocrService.analyze(file);
+            const jobId = startOcrResponse?.data?.jobId;
+
+            if (!jobId) {
+                throw new Error("Không nhận được Job ID từ phản hồi của hệ thống (data.jobId).");
+            }
+
+            const intervalId = setInterval(async () => {
+                try {
+                    const statusCheck = await ocrService.getStatus(jobId);
+                    const innerData = statusCheck?.data;
+                    const currentStatus = innerData?.status;
+
+                    if (currentStatus === 'COMPLETED') {
+                        clearInterval(intervalId);
+                        setIsOcrProcessing(false);
+
+                        const aiResult = innerData?.result;
+                        
+                        // Đồng bộ dữ liệu bóc tách được từ AI vào form trường dữ liệu
+                        setFormData(prev => ({
+                            ...prev,
+                            fullName: aiResult?.studentName || '',
+                            // Đồng bộ ngày sinh về dạng YYYY-MM-DD để hiển thị chuẩn trên thẻ input date
+                            dateOfBirth: aiResult?.studentDob ? aiResult.studentDob.split('T')[0] : '',
+                            gender: aiResult?.gender || '',
+                            ethnicity: aiResult?.ethnicity || '',
+                            placeOfBirth: aiResult?.placeOfBirth || '',
+                            major: aiResult?.major || '',
+                            graduationYear: aiResult?.graduationYear ? aiResult.graduationYear.toString() : '',
+                            ranking: aiResult?.classification || '',
+                            diplomaNumber: aiResult?.diplomaNumber || '',
+                            registryNumber: aiResult?.registryNumber || '',
+                            // Lưu các thông tin bổ trợ bắt buộc của Prisma từ kết quả OCR
+                            issuedDate: aiResult?.issuedDate ? aiResult.issuedDate.split('T')[0] : '',
+                            fileUrl: aiResult?.fileUrl || '',
+                            ocrRawText: aiResult?.ocrRawText || ''
+                        }));
+                        alert("AI đã trích xuất dữ liệu từ văn bằng thành công!");
+                    
+                    } else if (currentStatus === 'FAILED') {
+                        clearInterval(intervalId);
+                        setIsOcrProcessing(false);
+                        alert(`Trích xuất dữ liệu thất bại: ${innerData?.failedReason || 'Lỗi không xác định từ AI'}`);
+                    }
+                } catch (pollError) {
+                    clearInterval(intervalId);
+                    setIsOcrProcessing(false);
+                    console.error("Lỗi kiểm tra tiến trình OCR:", pollError);
+                }
+            }, 2000);
+
+        } catch (error: any) {
             setIsOcrProcessing(false);
-        }, 1500);
+            alert(error.message || "Lỗi kết nối khi gửi ảnh lên server quét dữ liệu.");
+            console.error(error);
+        }
     };
 
-    // 4. Xử lý khi bấm nút Lưu
-    const handleSubmit = (e: React.FormEvent) => {
+    // 4. Xử lý khi bấm nút Lưu hồ sơ thực tế xuống Database của Backend
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
 
-        const randomId = `UHS-${Math.floor(1000 + Math.random() * 9000)}`;
+        // Chuyển đổi an toàn ngày sinh mm/dd/yyyy hoặc yyyy-mm-dd
+        const isoDob = parseDateToISO(formData.dateOfBirth);
+        if (!isoDob) {
+            alert("Định dạng ngày sinh không hợp lệ. Vui lòng kiểm tra lại!");
+            setIsLoading(false);
+            return;
+        }
 
-        const newPendingDiploma = {
-            id: randomId,
-            ...formData,
-            submittedAt: new Date().toISOString(),
-            status: 'PENDING',
-            source: imagePreview ? 'OCR' : 'MANUAL'
+        // Xử lý ngày cấp bằng bắt buộc (issuedDate): Nếu tạo thủ công không qua OCR thì lấy ngày hiện tại
+        const isoIssuedDate = formData.issuedDate 
+            ? parseDateToISO(formData.issuedDate) 
+            : new Date().toISOString();
+
+        // Đóng gói payload khớp 100% với Schema Prisma (Tránh lỗi 500 Thiếu Trường / Sai Kiểu Dữ Liệu)
+        const payload = {
+            studentName: formData.fullName,
+            studentDob: isoDob, // Khớp DateTime (Bắt buộc)
+            placeOfBirth: formData.placeOfBirth || null,
+            gender: formData.gender || null,
+            ethnicity: formData.ethnicity || null,
+            nationality: formData.nationality || null,
+            major: formData.major, // Khớp String (Bắt buộc)
+            graduationYear: formData.graduationYear ? parseInt(formData.graduationYear, 10) : null,
+            classification: formData.ranking, // Khớp String (Bắt buộc)
+            diplomaNumber: formData.diplomaNumber, // Khớp String (Bắt buộc)
+            registryNumber: formData.registryNumber || null,
+            
+            // ĐÃ SỬA: Thêm các trường bắt buộc và phụ trợ từ tệp định nghĩa Prisma
+            issuedDate: isoIssuedDate, // Khớp DateTime (Bắt buộc)
+            fileUrl: formData.fileUrl || null,
+            ocrRawText: formData.ocrRawText || null,
+            degreeType: "DOCTOR" // Gán mặc định theo cấu trúc Enum DegreeType nếu điền thủ công
         };
 
-        const existingPending = JSON.parse(localStorage.getItem('uhs_pending_approvals') || '[]');
-        const updatedPending = [newPendingDiploma, ...existingPending];
-        localStorage.setItem('uhs_pending_approvals', JSON.stringify(updatedPending));
+        try {
+            // Thực hiện gọi API POST /diplomas để lưu dữ liệu thực tế
+            await diplomaService.create(payload);
 
-        setTimeout(() => {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new Event('sync_pending_count'));
+            }
+
             setIsLoading(false);
             alert("Đã chuyển hồ sơ sang mục Chờ phê duyệt!");
             router.push('/approvals');
-        }, 1000);
+        } catch (error: any) {
+            setIsLoading(false);
+            alert(error.message || "Lỗi hệ thống (500) khi đẩy dữ liệu vào cơ sở dữ liệu.");
+            console.error(error);
+        }
     };
 
     // Xóa ảnh để scan lại
     const handleRemoveImage = () => {
         setImagePreview(null);
-        // Có thể reset formData về rỗng ở đây nếu muốn
     };
 
     return (
-        // Đổi max-w-5xl thành max-w-7xl để có không gian cho 2 cột
         <div className="max-w-7xl mx-auto w-full space-y-8 animate-in fade-in duration-500">
 
             {/* Header Trang */}

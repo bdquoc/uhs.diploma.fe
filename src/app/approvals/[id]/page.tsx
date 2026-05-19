@@ -13,9 +13,11 @@ import {
     FileBadge,
     Save,
     X,
-    MessageSquareWarning
+    MessageSquareWarning,
+    Loader2
 } from 'lucide-react';
 import Link from 'next/link';
+import { diplomaService } from '../../../services/diploma.service';
 
 interface PageProps {
     params: Promise<{ id: string }>;
@@ -24,17 +26,15 @@ interface PageProps {
 export default function ApprovalDetail({ params }: PageProps) {
     const unwrappedParams = use(params);
     const id = unwrappedParams.id;
-
     const router = useRouter();
 
-    // Thêm state để nhận biết hồ sơ nhập tay hay OCR
+    const [loading, setLoading] = useState(true);
     const [isManualEntry, setIsManualEntry] = useState(false);
-
-    // State cho Popup Từ chối
     const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
+    const [originalFileUrl, setOriginalFileUrl] = useState<string | null>(null);
 
-    // State lưu trữ dữ liệu form
+    // State lưu trữ dữ liệu form dưới dạng chuỗi YYYY-MM-DD cho ô input
     const [certificateData, setCertificateData] = useState({
         fullName: "",
         dateOfBirth: "",
@@ -49,30 +49,50 @@ export default function ApprovalDetail({ params }: PageProps) {
         registryNumber: ""
     });
 
-    // Lấy dữ liệu hồ sơ từ LocalStorage dựa vào ID
+    // Lấy dữ liệu hồ sơ chi tiết
     useEffect(() => {
-        const pendingList = JSON.parse(localStorage.getItem('uhs_pending_approvals') || '[]');
-        const currentRecord = pendingList.find((item: any) => item.id === id);
+        const fetchRecordDetail = async () => {
+            try {
+                setLoading(true);
+                const result = await diplomaService.getById(id);
 
-        if (currentRecord) {
-            setIsManualEntry(!currentRecord.aiConfidence || currentRecord.aiConfidence === 'N/A');
+                if (result && result.data) {
+                    const record = result.data;
 
-            setCertificateData({
-                fullName: currentRecord.fullName || currentRecord.studentName || "",
-                dateOfBirth: currentRecord.dob || currentRecord.dateOfBirth || "",
-                placeOfBirth: currentRecord.placeOfBirth || "",
-                gender: currentRecord.gender || "",
-                ethnicity: currentRecord.ethnicity || "",
-                nationality: currentRecord.nationality || "Việt Nam",
-                major: currentRecord.major || "",
-                graduationYear: currentRecord.gradYear || currentRecord.graduationYear || "",
-                ranking: currentRecord.ranking || "",
-                diplomaNumber: currentRecord.diplomaNumber || currentRecord.serialNo || "",
-                registryNumber: currentRecord.registryNumber || currentRecord.regNo || ""
-            });
-        } else {
-            toast.error("Không tìm thấy dữ liệu hồ sơ gốc!");
-        }
+                    setIsManualEntry(!record.fileUrl || !record.ocrRawText);
+                    setOriginalFileUrl(record.fileUrl);
+
+                    // Tách chuỗi ISO "1997-08-04T00:00:00.000Z" thành "1997-08-04" để hiển thị vào ô input date
+                    let formattedDob = "";
+                    if (record.studentDob) {
+                        formattedDob = record.studentDob.split('T')[0];
+                    }
+
+                    setCertificateData({
+                        fullName: record.studentName || "",
+                        dateOfBirth: formattedDob,
+                        placeOfBirth: record.placeOfBirth || "",
+                        gender: record.gender || "",
+                        ethnicity: record.ethnicity || "",
+                        nationality: record.nationality || "Việt Nam",
+                        major: record.major || "",
+                        graduationYear: record.graduationYear ? record.graduationYear.toString() : "",
+                        ranking: record.classification || "", 
+                        diplomaNumber: record.diplomaNumber || "",
+                        registryNumber: record.registryNumber || ""
+                    });
+                } else {
+                    toast.error("Không tìm thấy dữ liệu hồ sơ gốc trên hệ thống!");
+                }
+            } catch (error: any) {
+                console.error("Lỗi khi lấy chi tiết hồ sơ:", error);
+                toast.error(error.message || "Không thể kết nối tới máy chủ.");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchRecordDetail();
     }, [id]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -80,58 +100,72 @@ export default function ApprovalDetail({ params }: PageProps) {
         setCertificateData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSaveEdits = (e: React.FormEvent) => {
+    // Hàm lưu các thay đổi nháp lên hệ thống
+    const handleSaveEdits = async (e: React.FormEvent) => {
         e.preventDefault();
-        toast.success("Đã lưu các thay đổi nháp!", {
-            style: { borderRadius: '10px', background: '#fff', color: '#1E3A8A', fontWeight: 'bold' }
-        });
+        try {
+            // Chuẩn hóa "YYYY-MM-DD" thành chuỗi ISO-8601 đầy đủ "YYYY-MM-DDT00:00:00.000Z" để tránh lỗi Prisma
+            const isoDob = certificateData.dateOfBirth ? `${certificateData.dateOfBirth}T00:00:00.000Z` : null;
+
+            const payload = {
+                studentName: certificateData.fullName,
+                studentDob: isoDob, 
+                placeOfBirth: certificateData.placeOfBirth,
+                gender: certificateData.gender,
+                ethnicity: certificateData.ethnicity,
+                nationality: certificateData.nationality,
+                major: certificateData.major,
+                graduationYear: certificateData.graduationYear ? parseInt(certificateData.graduationYear) : null,
+                classification: certificateData.ranking,
+                diplomaNumber: certificateData.diplomaNumber,
+                registryNumber: certificateData.registryNumber
+            };
+
+            await diplomaService.update(id, payload);
+
+            toast.success("Đã lưu các thay đổi nháp lên hệ thống!", {
+                style: { borderRadius: '10px', background: '#fff', color: '#1E3A8A', fontWeight: 'bold' }
+            });
+        } catch (error: any) {
+            toast.error(error.message || "Lỗi khi lưu bản nháp.");
+        }
     };
 
-    // Hàm xóa hồ sơ khỏi danh sách chờ (Dùng chung cho Approve & Reject)
-    const removeRecordFromPending = () => {
-        const pendingList = JSON.parse(localStorage.getItem('uhs_pending_approvals') || '[]');
-        const updatedPendingList = pendingList.filter((item: any) => item.id !== id);
-        localStorage.setItem('uhs_pending_approvals', JSON.stringify(updatedPendingList));
-
-        // Dispatch event để AppContext cập nhật lại tất cả số lượng
-        window.dispatchEvent(new Event('sync_app_data'));
-    };
-
-    // Hàm xử lý Phê duyệt
+    // Hàm xử lý Phê duyệt và Ký số
     const handleApprove = async () => {
-        const approvedDiploma = {
-            id: id,
-            fullName: certificateData.fullName,
-            major: certificateData.major,
-            ranking: certificateData.ranking,
-            dob: certificateData.dateOfBirth,
-            dateOfBirth: certificateData.dateOfBirth,
-            gradYear: certificateData.graduationYear,
-            graduationYear: certificateData.graduationYear,
-            serialNo: certificateData.diplomaNumber,
-            diplomaNumber: certificateData.diplomaNumber,
-            regNo: certificateData.registryNumber,
-            registryNumber: certificateData.registryNumber,
-            approvedAt: new Date().toISOString(),
-            status: 'SIGNED',
-            hash: '0x' + Math.random().toString(16).substring(2, 15)
-        };
+        try {
+            // Chuẩn hóa ngày sinh sang định dạng ISO trước khi cập nhật lần cuối
+            const isoDob = certificateData.dateOfBirth ? `${certificateData.dateOfBirth}T00:00:00.000Z` : null;
 
-        // 1. Lưu vào Kho văn bằng
-        const existingDiplomas = JSON.parse(localStorage.getItem('uhs_approved_diplomas') || '[]');
-        const updatedDiplomas = [approvedDiploma, ...existingDiplomas];
-        localStorage.setItem('uhs_approved_diplomas', JSON.stringify(updatedDiplomas));
+            const payload = {
+                studentName: certificateData.fullName,
+                studentDob: isoDob, 
+                placeOfBirth: certificateData.placeOfBirth,
+                gender: certificateData.gender,
+                ethnicity: certificateData.ethnicity,
+                nationality: certificateData.nationality,
+                major: certificateData.major,
+                graduationYear: certificateData.graduationYear ? parseInt(certificateData.graduationYear) : null,
+                classification: certificateData.ranking,
+                diplomaNumber: certificateData.diplomaNumber,
+                registryNumber: certificateData.registryNumber,
+                status: 'APPROVED'
+            };
+            
+            // Cập nhật thông tin mới nhất trên form trước khi thực hiện ký duyệt số
+            await diplomaService.update(id, payload);
 
-        // 2. Xóa khỏi danh sách chờ duyệt
-        removeRecordFromPending();
+            // Tiến hành kích hoạt hành động phê duyệt, ký số lưu kho vĩnh viễn
+            await diplomaService.approve(id);
 
-        // 3. Thông báo và chuyển hướng
-        toast.success('Đã phê duyệt, ký số & Lưu vào Kho văn bằng!', {
-            icon: '🔐',
-            style: { borderRadius: '10px', background: '#1E3A8A', color: '#fff', fontWeight: 'bold' }
-        });
-
-        router.push('/certificates');
+            toast.success('Đã phê duyệt, ký số & Lưu vào Kho văn bằng vĩnh viễn!', {
+                icon: '🔐',
+                style: { borderRadius: '10px', background: '#1E3A8A', color: '#fff', fontWeight: 'bold' }
+            });
+            router.push('/certificates'); 
+        } catch (error: any) {
+            toast.error(error.message || "Phê duyệt hồ sơ thất bại.");
+        }
     };
 
     // Hàm mở Popup từ chối
@@ -140,42 +174,33 @@ export default function ApprovalDetail({ params }: PageProps) {
     };
 
     // Hàm thực hiện Từ chối sau khi nhập lý do
-    const confirmReject = () => {
+    const confirmReject = async () => {
         if (!rejectReason.trim()) {
             toast.error("Vui lòng nhập lý do từ chối!");
             return;
         }
 
-        // Tạo dữ liệu hồ sơ bị từ chối
-        const rejectedDiploma = {
-            id: id,
-            fullName: certificateData.fullName,
-            major: certificateData.major,
-            // Ép rỗng các trường số hiệu để khớp với logic lọc ở Kho văn bằng
-            diplomaNumber: "",
-            serialNo: "",
-            registryNumber: certificateData.registryNumber,
-            rejectedAt: new Date().toISOString(),
-            reason: rejectReason,
-            status: 'REJECTED'
-        };
+        try {
+            await diplomaService.reject(id, rejectReason);
 
-        // 1. Lưu vào Kho hồ sơ từ chối (Sửa lại đúng key: uhs_rejected_diplomas)
-        const existingRejected = JSON.parse(localStorage.getItem('uhs_rejected_diplomas') || '[]');
-        const updatedRejected = [rejectedDiploma, ...existingRejected];
-        localStorage.setItem('uhs_rejected_diplomas', JSON.stringify(updatedRejected));
-
-        // 2. Xóa khỏi danh sách chờ duyệt
-        removeRecordFromPending();
-
-        // 3. Đóng popup và thông báo
-        setIsRejectModalOpen(false);
-        toast.success(`Đã từ chối hồ sơ #${id}`, {
-            style: { borderRadius: '10px', background: '#FEF2F2', color: '#DC2626', fontWeight: 'bold', border: '1px solid #FCA5A5' }
-        });
-
-        router.push('/certificates'); // Đổi đường dẫn này về Kho văn bằng thay vì /approvals để xem kết quả ngay
+            setIsRejectModalOpen(false);
+            toast.success(`Đã từ chối hồ sơ #${id}`, {
+                style: { borderRadius: '10px', background: '#FEF2F2', color: '#DC2626', fontWeight: 'bold', border: '1px solid #FCA5A5' }
+            });
+            router.push('/certificates');
+        } catch (error: any) {
+            toast.error(error.message || "Không thể cập nhật trạng thái từ chối.");
+        }
     };
+
+    if (loading) {
+        return (
+            <div className="py-40 flex flex-col items-center justify-center text-[#1E3A8A] gap-2">
+                <Loader2 className="animate-spin" size={40} />
+                <p className="text-sm font-semibold text-slate-500">Đang đồng bộ dữ liệu thẩm định...</p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-500 relative">
@@ -229,8 +254,6 @@ export default function ApprovalDetail({ params }: PageProps) {
                     </div>
                 </div>
             )}
-            {/* --- END MODAL --- */}
-
 
             {/* Nút quay lại và tiêu đề */}
             <div className="flex items-center gap-4">
@@ -276,10 +299,10 @@ export default function ApprovalDetail({ params }: PageProps) {
                 </div>
             </div>
 
-            {/* GRID ĐỐI SOÁT - Sẽ thay đổi tùy thuộc vào isManualEntry */}
+            {/* GRID ĐỐI SOÁT */}
             <div className={`grid grid-cols-1 ${isManualEntry ? 'lg:grid-cols-1' : 'lg:grid-cols-12'} gap-8 items-start`}>
 
-                {/* BÊN TRÁI: ẢNH VĂN BẰNG GỐC - CHỈ HIỂN THỊ KHI KHÔNG PHẢI NHẬP TAY */}
+                {/* BÊN TRÁI: ẢNH VĂN BẰNG GỐC */}
                 {!isManualEntry && (
                     <div className="col-span-1 lg:col-span-5 sticky top-24 space-y-4">
                         <div className="bg-slate-900 rounded-2xl p-2 shadow-xl border border-slate-800">
@@ -290,7 +313,7 @@ export default function ApprovalDetail({ params }: PageProps) {
                                 <span className="text-[10px] bg-white/10 text-white px-2 py-0.5 rounded uppercase font-bold">Zoom 100%</span>
                             </div>
                             <img
-                                src="/sample-diploma.png"
+                                src={originalFileUrl || "/sample-diploma.png"}
                                 className="w-full rounded-xl object-contain bg-black/20 max-h-[70vh]"
                                 alt="Bản quét văn bằng"
                             />
@@ -375,43 +398,31 @@ export default function ApprovalDetail({ params }: PageProps) {
                                 <div className="space-y-1.5">
                                     <label className="text-[11px] font-black text-slate-500 uppercase">Hạng tốt nghiệp</label>
                                     <select name="ranking" value={certificateData.ranking} onChange={handleChange} required className="w-full p-2.5 bg-white text-slate-900 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-100 focus:border-[#1E3A8A] outline-none font-medium">
-                                        <option value="">-- Chọn hạng --</option>
+                                        <option value="">-- Chọn xếp loại --</option>
                                         <option value="Xuất sắc">Xuất sắc</option>
                                         <option value="Giỏi">Giỏi</option>
                                         <option value="Khá">Khá</option>
                                         <option value="Trung bình">Trung bình</option>
                                     </select>
                                 </div>
-                                <div className="space-y-1.5 col-span-2">
-                                    <label className="text-[11px] font-black text-slate-500 uppercase">Số hiệu văn bằng (No)</label>
-                                    <input name="diplomaNumber" value={certificateData.diplomaNumber} onChange={handleChange} required className="w-full p-2.5 bg-white text-slate-900 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-100 focus:border-[#1E3A8A] outline-none font-medium font-mono" />
+                                <div className="space-y-1.5">
+                                    <label className="text-[11px] font-black text-slate-500 uppercase">Số hiệu văn bằng</label>
+                                    <input name="diplomaNumber" value={certificateData.diplomaNumber} onChange={handleChange} required className="w-full p-2.5 bg-white text-slate-900 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-100 focus:border-[#1E3A8A] outline-none font-medium" />
                                 </div>
-                                <div className="space-y-1.5 col-span-2">
-                                    <label className="text-[11px] font-black text-slate-500 uppercase">Số vào sổ gốc (Reg. No)</label>
-                                    <input name="registryNumber" value={certificateData.registryNumber} onChange={handleChange} required className="w-full p-2.5 bg-white text-slate-900 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-100 focus:border-[#1E3A8A] outline-none font-medium font-mono" />
+                                <div className="space-y-1.5">
+                                    <label className="text-[11px] font-black text-slate-500 uppercase">Số vào sổ gốc</label>
+                                    <input name="registryNumber" value={certificateData.registryNumber} onChange={handleChange} required className="w-full p-2.5 bg-white text-slate-900 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-100 focus:border-[#1E3A8A] outline-none font-medium" />
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Nút lưu nháp */}
-                        <div className="flex justify-end pt-2">
-                            <button type="submit" className="flex items-center gap-2 px-6 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold text-sm transition-all">
-                                <Save size={16} /> Cập nhật thông tin
-                            </button>
-                        </div>
-
-                        {/* Box Lưu ý (Hiển thị dưới cùng nếu không có ảnh gốc) */}
-                        {isManualEntry && (
-                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3 mt-6">
-                                <AlertCircle className="text-[#1E3A8A] shrink-0" size={20} />
-                                <p className="text-xs text-[#1E3A8A] leading-relaxed">
-                                    <strong>Lưu ý:</strong> Sau khi duyệt, hệ thống sẽ thực hiện ký số SHA-256. Mọi thay đổi dữ liệu sau bước này là không thể.
-                                </p>
+                            <div className="flex justify-end pt-4">
+                                <button type="submit" className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200 transition-all flex items-center gap-1.5">
+                                    <Save size={14} /> Lưu bản chỉnh sửa nháp
+                                </button>
                             </div>
-                        )}
+                        </div>
                     </form>
                 </div>
-
             </div>
         </div>
     );
