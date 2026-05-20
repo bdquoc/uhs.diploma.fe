@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-// Import Context vừa tạo
+// Import Context
 import { useAppContext } from '@/components/AppContext';
 import {
     LayoutDashboard,
@@ -14,10 +14,11 @@ import {
     LogOut,
     CheckSquare,
     Users,
-    Archive
+    Archive,
+    Search // 1. Thêm icon Search cho trang Tra cứu
 } from 'lucide-react';
 
-// 1. Định nghĩa danh sách Menu kèm theo phân quyền (Roles)
+// Định nghĩa danh sách Menu
 const menuItems = [
     {
         name: 'Dashboard',
@@ -43,6 +44,13 @@ const menuItems = [
         icon: Archive,
         roles: ['ADMIN', 'MANAGER']
     },
+    // 2. THÊM TRANG TRA CỨU VÀO ĐÂY
+    {
+        name: 'Tra cứu',
+        href: '/lookup',
+        icon: Search,
+        roles: ['ADMIN', 'MANAGER', 'STAFF'] // Cho phép tất cả nhân viên truy cập để kiểm tra nhanh
+    },
     {
         name: 'Quản lý nhân sự',
         href: '/admin/users',
@@ -54,13 +62,13 @@ const menuItems = [
 export default function Sidebar() {
     const pathname = usePathname();
 
-    // 2. Lấy thông tin User (Trong thực tế sẽ lấy từ Cookie hoặc AuthContext)
+    // Lấy thông tin User (Mẫu)
     const user = {
-        role: 'ADMIN', // Thử thay đổi giá trị này: 'STAFF' | 'MANAGER' | 'ADMIN'
+        role: 'ADMIN',
         name: 'Quản trị viên'
     };
 
-    // 3. LẤY SỐ HỒ SƠ CHỜ DUYỆT TỪ CONTEXT (Đã bỏ đoạn dùng localStorage cũ)
+    // Lấy số hồ sơ chờ duyệt từ Context
     const { pendingCount } = useAppContext();
 
     return (
@@ -81,7 +89,7 @@ export default function Sidebar() {
                 </div>
             </div>
 
-            {/* Navigation Links - Lọc theo Role */}
+            {/* Navigation Links */}
             <nav className="flex-1 px-4 space-y-1">
                 {menuItems.map((item) => {
                     // KIỂM TRA QUYỀN TRUY CẬP
@@ -102,13 +110,13 @@ export default function Sidebar() {
                         >
                             <Icon
                                 size={18}
-                                className={isActive ? 'text-[#10B981]' : 'text-slate-400 group-hover:text-slate-600'}
+                                className={isActive ? 'text-[#1E3A8A]' : 'text-slate-400 group-hover:text-slate-600'}
                             />
                             <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'}`}>
                                 {item.name}
                             </span>
 
-                            {/* Badge hiển thị số lượng linh hoạt (Đã đồng bộ Context) */}
+                            {/* Badge cho Phê duyệt */}
                             {item.name === 'Phê duyệt' && pendingCount > 0 && (
                                 <span className="ml-auto bg-red-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-sm">
                                     {pendingCount}

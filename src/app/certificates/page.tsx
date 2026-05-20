@@ -206,7 +206,7 @@ export default function CertificateArchive() {
                 </button>
             </div>
 
-            {/* THANH TÌM KIẾM & LỌC */}
+            {/* THANH TÌM KIẾM & LỌC
             <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                 <div className="flex gap-4">
                     <div className="flex-1 relative">
@@ -235,7 +235,7 @@ export default function CertificateArchive() {
                         <FilterSelect label="Hệ đào tạo" options={['Chính quy', 'Liên thông']} />
                     </div>
                 )}
-            </div>
+            </div> */}
 
             {/* BẢNG DANH SÁCH DỮ LIỆU */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
